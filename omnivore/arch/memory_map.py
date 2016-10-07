@@ -1,3 +1,4 @@
+<?xml version="1.0" encoding="utf-8"?>
 #  -*- coding: utf-8 -*-
 # Atari constants from the atari800 project, GPL licensed.  Transformed using
 # the find regex: \{(\".+\"),\s*(0x[0-9a-fA-F]+).*$ and replace regex: \2: \1,
@@ -1191,12 +1192,12 @@ class Apple2MemoryMap(EmptyMemoryMap):
         0xF941: "PRNTAX",	# Print A and X in hexadecimal
         0xF948: "PRBLNK",	#Print 3 spaces 
         0xF94A: "PRBL2",	#Print many spaces
-        0xFF3A: "BELL",	#Output a “bell” character
-        0xFBDD: "BELL1",	# Bep the Apple’s speaker
+        0xFF3A: "BELL",	#Output a ‚Äúbell‚Äù character
+        0xFBDD: "BELL1",	# Bep the Apple‚Äôs speaker
 # Input Subroutines, from Assembly Lines
         0xFD0C: "RDKEY",	#Get an input character 
         0xFD35: "RDCHAR",	#Get an input character or escape code
-        0xFD1B: "KEYIN",	#Read the Apple’s keyboard 
+        0xFD1B: "KEYIN",	#Read the Apple‚Äôs keyboard 
         0xFD6A: "GETLN",	#Get an input line with prompt
         0xFD67: "GETLNZ",	#Get an input line 
         0xFD6F: "GETLN1",	#Get an input line, no prompt
@@ -1246,7 +1247,7 @@ class Apple2MemoryMap(EmptyMemoryMap):
 # Other Subroutines, from Assembly Lines
         0xFCA8: "WAIT",	#Delay
         0xFB1E: "PREAD",	#Read a game controller
-        0xFF2D: "PRERR",	#Print “ERR”
+        0xFF2D: "PRERR",	#Print ‚ÄúERR‚Äù
         0xFF4A: "IOSAVE",	#Save all registers
         0xFF3F: "IOREST"	#Restore all registers
     }
@@ -1265,18 +1266,26 @@ class KIM1MemoryMap(EmptyMemoryMap):
         0x00F2: "SF"   ,    # Stack Pointer                       
         0x00F3: "A"    ,   # Accumulator                        
         0x00F4: "Y"    ,   # Y-Index Register                   
-        0x00F5: "X"    ,   # X-Index Register                   
+        0x00F5: "X"    ,   # X-Index Register  
+        0x00F6: "CHKSUM1"    ,   # Checksum 
+        0x00F7: "CHKSUM2"    ,   # Checksum
+        0x00F9: "DSPLYRT"    ,   # display right pair
+        0x00FA: "DSPLYCT"    ,   # display center pair
+        0x00FB: "DSPLYLT"    ,   # display left pair
         0x1700: "PAD"  ,     # 6530-003 A Data Register           
         0x1701: "PADD" ,      # 6530-003 A Data Direction Register 
         0x1702: "PBD"  ,     # 6530-003 B Data Register           
         0x1703: "PBDD" ,      # 6530-003 B Data Direction Register 
-        0x1704: "TIMER",       # 	 6530-003 Interval Timer            
-        0x170F: "TIMER2",       #	                                    
-        0x17F5: "SAL"  ,     # Starting Address - Low Order Byte  
-        0x17F6: "SAH"  ,     # Starting Address - High Order Byte 
-        0x17F7: "EAL"  ,     # Ending Address - Low Order Byte    
-        0x17F8: "EAH"  ,     # Ending Address - High Order Byte   
-        0x17F9: "ID"   ,    # File Identification Number         
+        0x1704: "TIMER",       # 6530-003 Interval Timer            
+        0x170C: "TIMER2",       # 6530-003 Interval Timer     
+        0x1744: "TIMER3",       # 6530-003 Interval Timer         
+        0x174C: "TIMER4",       # 6530-003 Interval Timer            
+        0x17F2: "SERBD",       # Serial baud rate control           
+        0x17F5: "SAL"  ,     # Tape Dump Starting Address - Low Order Byte  
+        0x17F6: "SAH"  ,     # Tape Dump Starting Address - High Order Byte 
+        0x17F7: "EAL"  ,     # Tape Dump Ending Address - Low Order Byte    
+        0x17F8: "EAH"  ,     # Tape Dump Ending Address - High Order Byte   
+        0x17F9: "ID"   ,    # Tape File Identification Number         
         0x17FA: "NMIL" ,      # NMI Vector - Low Order Byte        
         0x17FB: "NMIH" ,      # NMI Vector - High Order Byte       
         0x17FC: "RSTL" ,      # RST Vector - Low Order Byte                 	                                    
@@ -1286,8 +1295,11 @@ class KIM1MemoryMap(EmptyMemoryMap):
         0x1800: "DUMPT",       #	Start Address - Audio Tape Dump   
         0x1873: "LOADT",       #Start Address - Audio Tape Load   
         0x1C00: "NMI"  ,     #Start Address for NMI using KIM "Save Nachine" Routine (Load in 17FA & 17FB)                      
-        0x17F7: "EAL"  ,     #Ending Address - Low Order Byte   
-        0x17F8: "EAH"       #Ending Address - High Order Byte  
+        0x1C4F: "BRK"  ,     # destructive monitor entry point                  
+        0x1EA0: "SEROUT"  ,     # Serial Output entry point             
+        0x1E5A: "SERIN"  ,     #   Serial Input entry point            
+        0x1F1F: "DIGIT"  ,     # entry point for digit display routine             
+        0x1F6A: "KYBD"       # entry point for keyboard read routine              
 	}	
 
     wmemmap = {
