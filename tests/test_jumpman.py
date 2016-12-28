@@ -195,6 +195,13 @@ class TestJumpmanPainting(object):
         print d2[haddr2 - self.addr:]
         print rl
         print num_p
+        assert num_p == 3
+        c2 = self.builder.parse_objects(d2)
+        self.builder.parse_harvest_table(d2, self.addr, haddr2, c2)
+        print c2
+        assert len(c2) == 1
+        assert len(c2[0].trigger_painting) == 1
+        assert len(c2[0].trigger_painting[0].trigger_painting) == 1
 
 class TestJumpmanBounds(object):
     def setup(self):
@@ -241,6 +248,141 @@ class TestJumpmanBounds(object):
             flipped_bounds = DrawObjectBounds.get_bounds(objects)
             print "flipped bounds", flipped_bounds
             assert bounds == flipped_bounds
+
+
+class TestJumpmanTriggers(object):
+    def setup(self):
+        with open("triggers1.s", "w") as fh:
+            fh.write("""
+*=$2910
+
+trigger1
+        RTS
+
+*=$2920
+
+trigger2
+        RTS
+
+*=$2930
+
+trigger3
+        RTS
+
+*=$2940
+
+trigger4
+        RTS
+                """)
+        with open("triggers2.s", "w") as fh:
+            fh.write("""
+*=$2d10
+
+trigger1
+        RTS
+
+*=$2d20
+
+trigger2
+        RTS
+
+*=$2d30
+
+trigger3
+        RTS
+
+*=$2d40
+
+trigger4
+        RTS
+                """)
+        with open("triggers3.s", "w") as fh:
+            fh.write("""
+*=$2e10
+
+trigger1
+        RTS
+
+*=$2e20
+
+trigger2
+        RTS
+
+*=$2e30
+
+trigger3
+        RTS
+                """)
+        self.builder = JumpmanLevelBuilder(None)
+        self.addr = 0x2c00
+
+    def get_sample_objects(self):
+        p1 = Peanut(1, 10, 10, 1)
+        p1.trigger_function = 0x2910
+        p2 = Peanut(2, 20, 20, 1)
+        p2.trigger_function = 0x2920
+        p3 = Peanut(3, 30, 30, 1)
+        p3.trigger_function = 0x2930
+        p1.trigger_painting = [p2]
+        p2.trigger_painting = [p3]
+        p4 = Peanut(4, 40, 40, 1)
+        p4.trigger_function = 0x2940
+        p5 = Peanut(5, 50, 50, 1)
+        p5.trigger_function = 0x4fff  # not pointing to anything in assembly
+        objects = [p1, p4, p5]
+        d2, haddr2, rl, num_p = self.builder.create_level_definition(self.addr, 0, 6, objects)
+        print d2[0:haddr2 - self.addr]
+        print d2[haddr2 - self.addr:]
+        print rl
+        print num_p
+        assert num_p == 5
+        c2 = self.builder.parse_objects(d2)
+        self.builder.parse_harvest_table(d2, self.addr, haddr2, c2)
+        print c2
+        return c2
+
+    def test_address_mapping(self):
+        code1 = JumpmanCustomCode("triggers1.s")
+        code2 = JumpmanCustomCode("triggers2.s")
+        t = code1.triggers
+        assert len(t) == 4
+        t = code2.triggers
+        assert len(t) == 4
+        c2 = self.get_sample_objects()
+        old_map = code1.triggers
+        new_map = code2.triggers
+        changed, orphaned, not_labeled = self.builder.update_triggers(old_map, new_map, c2)
+        print changed
+        print orphaned
+        print not_labeled
+        assert len(changed) == 4
+        assert len(orphaned) == 0
+        assert len(not_labeled) == 1
+        p1, p4, p5 = c2
+        assert p1.trigger_function == 0x2d10
+        assert p4.trigger_function == 0x2d40
+
+    def test_address_mapping_missing(self):
+        code1 = JumpmanCustomCode("triggers1.s")
+        code2 = JumpmanCustomCode("triggers3.s")
+        t = code1.triggers
+        assert len(t) == 4
+        t = code2.triggers
+        assert len(t) == 3
+        c2 = self.get_sample_objects()
+        old_map = code1.triggers
+        new_map = code2.triggers
+        changed, orphaned, not_labeled = self.builder.update_triggers(old_map, new_map, c2)
+        print changed
+        print orphaned
+        print not_labeled
+        assert len(changed) == 3
+        assert len(orphaned) == 1
+        assert len(not_labeled) == 1
+        p1, p4, p5 = c2
+        assert p1.trigger_function == 0x2e10
+        assert p4.trigger_function == 0x2940
+
 
 if __name__ == "__main__":
     t = TestJumpmanScreen()

@@ -930,3 +930,157 @@ class JumpmanLevelBuilder(object):
             objects = self.objects
         levdef = LevelDef(level_data_origin)
         return levdef.process_objects(objects, hx, hy)
+
+    def change_trigger(self, objs, rev_old_map, new_map, changed, orphaned, not_labeled):
+        for obj in objs:
+            if obj.single:
+                t = obj.trigger_function
+                if t in rev_old_map:
+                    name = rev_old_map[t]
+                    if name in new_map:
+                        new_t = new_map[name]
+                        if t != new_t:
+                            print "changed %s trigger function to $%04x" % (obj, new_t)
+                            obj.trigger_function = new_map[name]
+                            changed.append(obj)
+                    else:
+                        orphaned.append(obj)
+                else:
+                    not_labeled.append(obj)
+            if obj.trigger_painting:
+                self.change_trigger(obj.trigger_painting, rev_old_map, new_map, changed, orphaned, not_labeled)
+
+    def update_triggers(self, old_map, new_map, objects=None):
+        if objects is None:
+            objects = self.objects
+        rev_old_map = {v: k for k, v in old_map.iteritems()}
+        changed = []
+        orphaned = []
+        not_labeled = []
+        self.change_trigger(objects, rev_old_map, new_map, changed, orphaned, not_labeled)
+        return changed, orphaned, not_labeled
+
+
+class JumpmanCustomCode(object):
+    vector_storage = {
+        "vbi1": 0x2802,
+        "vbi2": 0x2804,
+        "vbi3": 0x2806,
+        "vbi4": 0x2808,
+        "dead_begin": 0x2810,
+        "dead_at_bottom": 0x2812,
+        "dead_falling": 0x2814,
+        "gameloop": 0x283b,
+        "out_of_lives": 0x2840,
+        "level_complete": 0x2844,
+        "collect_callback": 0x2849,
+    }
+
+    vector_defaults = {
+        0x2802: 0x311b,
+        0x2804: 0x311b,
+        0x2806: 0x311b,
+        0x2808: 0x49a0,
+        0x2810: 0x4200,
+        0x2812: 0x4580,
+        0x2814: 0x311b,
+        0x2816: 0x30e0,
+        0x2840: 0x4ffd,
+        0x2844: 0x4c00,
+        0x2849: 0x284b,
+    }
+
+    std_gameloop = [ord(x) for x in " \xd0I \x00K\xad>(\xc9\x00\xf0\x11\xad\xbe0\xc9\x08\x90\xef\xad\xf00\xc9\xff\xd0\xe5L?(lD("]
+
+    def __init__(self, filename):
+        # raise ImportError and let caller handle it
+        from pyatasm import Assemble
+        asm = Assemble(filename)
+        if not asm:
+            raise SyntaxError(asm.errors)
+        self.asm = asm
+        self.ranges = []
+        self.data = []
+        self.labels_used = set()
+        self.vector_labels_used = set()
+        self.vectors_used = set()
+        self.triggers = {}
+        self.custom_gameloop = False
+        self.parse()
+
+    @property
+    def info(self):
+        ranges = []
+        total = 0
+        for first, last, raw in self.asm.segments:
+            ranges.append("$%04x-$%04x" % (first, last))
+            total += len(raw)
+        v = sorted(self.vector_labels_used)
+        t = sorted(self.triggers.keys())
+        lb = sorted(self.labels_used)
+
+        text = """\
+Total bytes: %d
+Ranges: %s
+Custom game loop? %s
+Vectors used:
+  %s
+Triggers defined:
+  %s
+Labels defined:
+  %s
+""" % (total, ",".join(ranges), "YES" if self.custom_gameloop else "NO, using standard game loop", "\n  ".join(v), "\n  ".join(t), "\n  ".join(lb))
+        return text
+
+    def add_vector(self, vector, subroutine):
+        self.vectors_used.add(vector)
+        self.ranges.append((vector, vector + 2))
+        hi, lo = divmod(subroutine, 256)
+        self.data.extend([lo, hi])
+        print "vector: %x with value %x" % (vector, subroutine)
+
+    def parse(self):
+        for first, last, raw in self.asm.segments:
+            self.ranges.append((first, last))
+            self.data.extend(raw)
+        for label, addr in self.asm.labels.iteritems():
+            if label in self.vector_storage:
+                self.vector_labels_used.add(label)
+                vector = self.vector_storage[label]
+                self.add_vector(vector, addr)
+            elif label.startswith("trigger"):
+                self.triggers[label] = addr
+            else:
+                self.labels_used.add(label)
+
+        # force unused labels to revert to default values. This is needed, for
+        # example, to overwrite a label that is unused in the current
+        # development iteration but was present in the prior iteration. Without
+        # overwriting this, the old vector would still be present in the data
+        # and it would get called even though the current code doesn't use that
+        # vector.
+        for vector, default in self.vector_defaults.iteritems():
+            if vector in self.vectors_used:
+                continue
+            self.add_vector(vector, default)
+
+        # check for a gameloop, otherwise add the standard gameloop
+        if "gameloop" not in self.labels_used:
+            vector = self.vector_storage["gameloop"]
+            first = 0x2860
+            self.add_vector(vector, first)
+            last = first + len(self.std_gameloop)
+            self.ranges.append((first, last))
+            self.data.extend(self.std_gameloop)
+        else:
+            self.custom_gameloop = True
+
+        print self.ranges
+        print self.data
+
+    def get_ranges(self, segment):
+        ranges = []
+        for first, last in self.ranges:
+            ranges.append((first - segment.start_addr, last - segment.start_addr))
+
+        return ranges, self.data

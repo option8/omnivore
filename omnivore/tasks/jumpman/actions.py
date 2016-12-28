@@ -9,39 +9,52 @@ import wx
 # Enthought library imports.
 from pyface.tasks.action.api import EditorAction
 
-from omnivore.utils.wx.dialogs import prompt_for_hex, prompt_for_string
+from omnivore.utils.wx.dialogs import prompt_for_hex, prompt_for_string, ChooseOnePlusCustomDialog
+from omnivore.utils.textutil import text_to_int
 from omnivore.framework.actions import SelectAllAction, SelectNoneAction, SelectInvertAction
 from omnivore.utils.jumpman import DrawObjectBounds
 
 from commands import *
 
 
+def trigger_dialog(event, e, obj):
+    possible_labels = e.get_triggers()
+    label = e.get_trigger_label(obj.trigger_function)
+    if label is None and obj.trigger_function:
+        custom_value = "%04x" % obj.trigger_function
+    else:
+        custom_value = ""
+    print obj
+    print possible_labels
+    dlg = ChooseOnePlusCustomDialog(event.task.window.control, possible_labels.keys(), label, custom_value, "Choose Trigger Function", "Select one trigger function or enter custom address", "Trigger Addr (hex)")
+    if dlg.ShowModal() == wx.ID_OK:
+        label, addr = dlg.get_selected()
+        if label is not None:
+            addr = possible_labels[label]
+        else:
+            try:
+                addr = text_to_int(addr, "hex")
+            except ValueError:
+                event.task.window.error("Invalid address %s" % addr)
+                addr = None
+    else:
+        addr = None
+    dlg.Destroy()
+    return addr
+
 class ClearTriggerAction(EditorAction):
-    name = "Clear Trigger Function"
-
-    picked = None
-
-    def perform(self, event):
-        self.picked.trigger_function = None
-
-class TriggerAction(EditorAction):
-    name = "Set Trigger Function..."
-
-    picked = None
-
-    def perform(self, event):
-        e = self.active_editor
-        addr, error = prompt_for_hex(e.window.control, "Enter trigger subroutine address: (default hex; prefix with # for decimal)", "Function to be Activated", self.picked.trigger_function, return_error=True, default_base="hex")
-        if addr is not None:
-            self.picked.trigger_function = addr
-            e.bitmap.save_changes()
-
-class ClearTriggerSelectionAction(EditorAction):
     name = "Clear Trigger Function"
     enabled_name = 'can_copy'
     command = ClearTriggerCommand
 
-    def get_addr(self, objects):
+    picked = None
+
+    def get_objects(self):
+        if self.picked is not None:
+            return self.picked
+        return self.active_editor.bitmap.mouse_mode.objects
+
+    def get_addr(self, event, objects):
         return None
 
     def permute_object(self, obj, addr):
@@ -49,9 +62,9 @@ class ClearTriggerSelectionAction(EditorAction):
 
     def perform(self, event):
         e = self.active_editor
-        objects = e.bitmap.mouse_mode.objects
+        objects = self.get_objects()
         try:
-            addr = self.get_addr(objects)
+            addr = self.get_addr(event, objects)
             for o in objects:
                 self.permute_object(o, addr)
             e.bitmap.save_changes(self.command)
@@ -59,13 +72,13 @@ class ClearTriggerSelectionAction(EditorAction):
         except ValueError:
             pass
 
-class SetTriggerSelectionAction(ClearTriggerSelectionAction):
-    name = "Set Trigger Function"
+class SetTriggerAction(ClearTriggerAction):
+    name = "Set Trigger Function..."
     command = SetTriggerCommand
 
-    def get_addr(self, objects):
+    def get_addr(self, event, objects):
         e = self.active_editor
-        addr, error = prompt_for_hex(e.window.control, "Enter trigger subroutine address: (default hex; prefix with # for decimal)", "Function to be Activated", return_error=True, default_base="hex")
+        addr = trigger_dialog(event, e, objects[0])
         if addr is not None:
             return addr
         raise ValueError("Cancelled!")
@@ -133,3 +146,11 @@ class AssemblySourceAction(EditorAction):
         filename = prompt_for_string(e.window.control, "Enter MAC/65 assembly source filename for custom code", "Source File For Custom Code", e.assembly_source)
         if filename is not None:
             e.set_assembly_source(filename)
+
+
+class RecompileAction(EditorAction):
+    name = 'Recompile Code'
+
+    def perform(self, event):
+        e = self.active_editor
+        e.compile_assembly_source(True)

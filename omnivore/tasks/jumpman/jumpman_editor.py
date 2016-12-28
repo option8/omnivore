@@ -7,10 +7,9 @@ import cPickle as pickle
 import wx
 import numpy as np
 from atrcopy import SegmentData, DefaultSegment, selected_bit_mask, comment_bit_mask, data_bit_mask, match_bit_mask
-from pyatasm import Assemble
 
 # Enthought library imports.
-from traits.api import on_trait_change, Any, Bool, Int, Str, List, Event, Enum, Instance, File, Unicode, Property, provides
+from traits.api import on_trait_change, Any, Bool, Int, Str, List, Dict, Event, Enum, Instance, File, Unicode, Property, provides
 from pyface.api import YES, NO
 
 # Local imports.
@@ -283,6 +282,12 @@ class JumpmanEditor(BitmapEditor):
 
     assembly_source = Str
 
+    custom_code = Any(None)
+
+    manual_recompile_needed = Bool(False)
+
+    old_trigger_mapping = Dict
+
     ##### class attributes
     
     valid_mouse_modes = [AnticDSelectMode, DrawGirderMode, DrawLadderMode, DrawUpRopeMode, DrawDownRopeMode, DrawPeanutMode, EraseGirderMode, EraseLadderMode, EraseRopeMode, JumpmanRespawnMode]
@@ -314,8 +319,12 @@ class JumpmanEditor(BitmapEditor):
 
     def is_valid_for_save(self):
         all_ok = True
-        self.compile_assembly_source()
-        if self.assembly_results:
+        if self.manual_recompile_needed:
+            answer = self.task.confirm("Error in assembly code\n\nSave Anyway?" , "Bad Assembly Code")
+            all_ok = (answer == YES)
+        else:
+            self.compile_assembly_source()
+        if all_ok and self.custom_code and not self.manual_recompile_needed:
             self.save_assembly()
         if not self.bitmap.level_builder.harvest_ok:
             reason = self.bitmap.level_builder.harvest_reason()
@@ -334,10 +343,13 @@ class JumpmanEditor(BitmapEditor):
             del e['bitmap_renderer']
         if 'assembly_source' in e:
             self.assembly_source = e['assembly_source']
+        if 'old_trigger_mapping' in e:
+            self.old_trigger_mapping = e['old_trigger_mapping']
         BitmapEditor.process_extra_metadata(self, doc, e)
         
     def get_extra_metadata(self, mdict):
         mdict["assembly_source"] = self.assembly_source
+        mdict["old_trigger_mapping"] = dict(self.old_trigger_mapping)  # so we don't try to pickle a TraitDictObject
         BitmapEditor.get_extra_metadata(self, mdict)
 
     @on_trait_change('machine.bitmap_shape_change_event')
@@ -367,47 +379,70 @@ class JumpmanEditor(BitmapEditor):
         since pyatasm can't handle the virtual filesystem.
         """
         self.assembly_source = src
-        self.metadata_dirty = True
+        self.manual_recompile_needed = False
         self.compile_assembly_source()
 
-    def compile_assembly_source(self):
-        self.assembly_results = None
+    def compile_assembly_source(self, show_info=False):
+        self.custom_code = None
         if not self.assembly_source:
             return
+        self.metadata_dirty = True
         dirname = os.path.dirname(self.document.filesystem_path())
         if dirname:
-            src = os.path.join(dirname, self.assembly_source)
-            asm = Assemble(src)
-            if asm:
-                self.assembly_results = asm
-            else:
-                log.error("Assembly error: %s" % asm.errors)
-                self.window.error(asm.errors, "Assembly Error")
+            filename = os.path.join(dirname, self.assembly_source)
+            try:
+                self.custom_code = JumpmanCustomCode(filename)
+                self.manual_recompile_needed = False
+            except SyntaxError, e:
+                log.error("Assembly error: %s" % e.msg)
+                self.window.error(e.msg, "Assembly Error")
+                self.manual_recompile_needed = True
+            except ImportError:
+                log.error("Please install pyatasm to compile custom code.")
+                self.assembly_source = ""
+                self.old_trigger_mapping = dict()
+            if self.custom_code:
+                self.update_trigger_mapping()
+                if show_info:
+                    dlg = wx.lib.dialogs.ScrolledMessageDialog(self.window.control, self.custom_code.info, "Assembly Results")
+                    dlg.ShowModal()
 
-    label_storage = {
-        "vbi1": 0x2802,
-        "vbi2": 0x2804,
-        "vbi3": 0x2806,
-        "vbi4": 0x2808,
-    }
+    def update_trigger_mapping(self):
+        # only create old trigger mapping if one doesn't exist
+        if not self.old_trigger_mapping:
+            self.old_trigger_mapping = dict(self.get_triggers())
+        else:
+            old_map = self.old_trigger_mapping
+            new_map = self.get_triggers()
+            print "old map", old_map
+            print "new_map", new_map
+            if old_map != new_map:
+                print "UPDATING trigger map!"
+                self.bitmap.level_builder.update_triggers(old_map, new_map)
+                # FIXME: what about undo and the trigger mapping?
+                self.bitmap.save_changes(AssemblyChangedCommand)
+                self.old_trigger_mapping = new_map
+
+    def get_triggers(self):
+        if self.custom_code is None and self.manual_recompile_needed == False:
+            self.compile_assembly_source()
+        code = self.custom_code
+        if code is None:
+            return {}
+        return code.triggers
+
+    def get_trigger_label(self, addr):
+        rev_old_map = {v: k for k, v in self.old_trigger_mapping.iteritems()}
+        if addr in rev_old_map:
+            return rev_old_map[addr]
+        return None
 
     def save_assembly(self):
-        asm = self.assembly_results
-        if not asm:
+        code = self.custom_code
+        if not code:
             return
         source, level_addr, harvest_addr = self.get_level_addrs()
-        ranges = []
-        data = []
-        for first, last, raw in asm.segments:
-            ranges.append((first - source.start_addr, last - source.start_addr))
-            data.extend(raw)
-        for label, addr in asm.labels.iteritems():
-            if label in self.label_storage:
-                index = self.label_storage[label] - source.start_addr
-                ranges.append((index, index + 2))
-                hi, lo = divmod(addr, 256)
-                data.extend([lo, hi])
-
+        ranges, data = code.get_ranges(source)
         print "saving assembly:", ranges, data
         cmd = MoveObjectCommand(source, ranges, data)
         self.process_command(cmd)
@@ -433,6 +468,7 @@ class JumpmanEditor(BitmapEditor):
     
     def rebuild_document_properties(self):
         self.update_mouse_mode(AnticDSelectMode)
+        self.manual_recompile_needed = False
         self.compile_assembly_source()
 
     def check_valid_segment(self, segment=None):
